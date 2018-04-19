@@ -24,18 +24,20 @@ class Agent(metaclass=ABCMeta):
 
 
 class SimpleCarAgent(Agent):
-    def __init__(self, history_data=int(50000)):
+    def __init__(self, history_data=int(50000), hidden_layers=[]):
         """
         Создаёт машинку
         :param history_data: количество хранимых нами данных о результатах предыдущих шагов
         """
         self.evaluate_mode = False  # этот агент учится или экзаменутеся? если учится, то False
-        self._rays =  # выберите число лучей ладара; например, 5
+        self._rays = 7 # выберите число лучей ладара; например, 5
         # here +2 is for 2 inputs from elements of Action that we are trying to predict
-        self.neural_net = Network([self.rays + 4,
+        self.neural_net = Network([self.rays + 4] +
                                    # внутренние слои сети: выберите, сколько и в каком соотношении вам нужно
                                    # например, (self.rays + 4) * 2 или просто число
-                                   1],
+                                   # (self.rays + 4)*2,
+                                  # [9] + [1],
+                                  hidden_layers + [1],
                                   output_function=lambda x: x, output_derivative=lambda x: 1)
         self.sensor_data_history = deque([], maxlen=history_data)
         self.chosen_actions_history = deque([], maxlen=history_data)
@@ -43,11 +45,11 @@ class SimpleCarAgent(Agent):
         self.step = 0
 
     @classmethod
-    def from_weights(cls, layers, weights, biases):
+    def from_weights(cls, layers, weights, biases, hidden_layers):
         """
-        Создание агента по параметрам его нейронной сети. Разбираться не обязательно.
+        СMaÿEоздание агента по параметрам его нейронной сети. Разбираться не обязательно.
         """
-        agent = SimpleCarAgent()
+        agent = SimpleCarAgent(hidden_layers=hidden_layers)
         agent._rays = weights[0].shape[1] - 4
         nn = Network(layers, output_function=lambda x: x, output_derivative=lambda x: 1)
 
@@ -70,15 +72,15 @@ class SimpleCarAgent(Agent):
         return agent
 
     @classmethod
-    def from_string(cls, s):
+    def from_string(cls, s, hidden_layers):
         from numpy import array  # это важный импорт, без него не пройдёт нормально eval
         layers, weights, biases = eval(s.replace("\n", ""), locals())
-        return cls.from_weights(layers, weights, biases)
+        return cls.from_weights(layers, weights, biases, hidden_layers)
 
     @classmethod
-    def from_file(cls, filename):
+    def from_file(cls, filename, hidden_layers):
         c = open(filename, "r").read()
-        return cls.from_string(c)
+        return cls.from_string(c, hidden_layers)
 
     def show_weights(self):
         params = self.neural_net.sizes, self.neural_net.weights, self.neural_net.biases
@@ -114,13 +116,13 @@ class SimpleCarAgent(Agent):
 
         # Добавим случайности, дух авантюризма. Иногда выбираем совершенно
         # рандомное действие
-        if (not self.evaluate_mode) and (random.random() < 0.05):
-            highest_reward = rewards[np.random.choice(len(rewards))]
-            best_action = rewards_to_controls_map[highest_reward]
+        # if (not self.evaluate_mode) and (random.random() < 0.05):
+            # highest_reward = rewards[np.random.choice(len(rewards))]
+            # best_action = rewards_to_controls_map[highest_reward]
         # следующие строки помогут вам понять, что предсказывает наша сеть
         #     print("Chosen random action w/reward: {}".format(highest_reward))
         # else:
-        #     print("Chosen action w/reward: {}".format(highest_reward))
+        # print("Chosen action w/reward: {}".format(highest_reward))
 
         # запомним всё, что только можно: мы хотим учиться на своих ошибках
         self.sensor_data_history.append(sensor_info)
@@ -130,7 +132,7 @@ class SimpleCarAgent(Agent):
 
         return best_action
 
-    def receive_feedback(self, reward, train_every=50, reward_depth=7):
+    def receive_feedback(self, reward, train_every=100, reward_depth=7, epochs=15, eta=0.05):
         """
         Получить реакцию на последнее решение, принятое сетью, и проанализировать его
         :param reward: оценка внешним миром наших действий
@@ -159,4 +161,4 @@ class SimpleCarAgent(Agent):
             X_train = np.concatenate([self.sensor_data_history, self.chosen_actions_history], axis=1)
             y_train = self.reward_history
             train_data = [(x[:, np.newaxis], y) for x, y in zip(X_train, y_train)]
-            self.neural_net.SGD(training_data=train_data, epochs=15, mini_batch_size=train_every, eta=0.05)
+            self.neural_net.SGD(training_data=train_data, epochs=epochs, mini_batch_size=train_every, eta=eta)

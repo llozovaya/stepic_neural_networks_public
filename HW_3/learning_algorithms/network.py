@@ -99,8 +99,10 @@ class Network(object):
                 success_tests = self.evaluate(test_data)
                 print("Эпоха {0}: {1} / {2}".format(
                     j, success_tests, n_test))
-            else:
-                print("Эпоха {0} завершена".format(j))
+            # else:
+                # print("Эпоха {0} завершена".format(j))
+
+        # print("{0} эпох завершено".format(epochs))
         if test_data is not None:
             return success_tests / n_test
 

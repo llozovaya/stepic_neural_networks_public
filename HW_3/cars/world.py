@@ -26,17 +26,17 @@ class World(metaclass=ABCMeta):
 
 
 class SimpleCarWorld(World):
-    COLLISION_PENALTY =  # выберите сами
-    HEADING_REWARD =  # выберите сами
-    WRONG_HEADING_PENALTY =  # выберите сами
-    IDLENESS_PENALTY =  # выберите сами
-    SPEEDING_PENALTY =  # выберите сами
-    MIN_SPEED =  # выберите сами
-    MAX_SPEED =  # выберите сами
+    COLLISION_PENALTY = 1 # выберите сами
+    HEADING_REWARD = 32 # выберите сами
+    WRONG_HEADING_PENALTY = 64 # выберите сами
+    IDLENESS_PENALTY = 8 # выберите сами
+    SPEEDING_PENALTY = 8 # выберите сами
+    MIN_SPEED = 0.2 # выберите сами
+    MAX_SPEED = 10 # выберите сами
 
     size = (800, 600)
 
-    def __init__(self, num_agents, car_map, Physics, agent_class, **physics_pars):
+    def __init__(self, num_agents, car_map, Physics, agent_class, hidden_layers, train_every, epochs, eta, **physics_pars):
         """
         Инициализирует мир
         :param num_agents: число агентов в мире
@@ -48,13 +48,16 @@ class SimpleCarWorld(World):
         """
         self.physics = Physics(car_map, **physics_pars)
         self.map = car_map
+        self._train_every = train_every
+        self._epochs = epochs
+        self._eta = eta
 
         # создаём агентов
-        self.set_agents(num_agents, agent_class)
+        self.set_agents(num_agents, agent_class, hidden_layers)
 
         self._info_surface = pygame.Surface(self.size)
 
-    def set_agents(self, agents=1, agent_class=None):
+    def set_agents(self, agents=1, agent_class=None, hidden_layers=[]):
         """
         Поместить в мир агентов
         :param agents: int или список Agent, если int -- то обязателен параметр agent_class, так как в мир присвоятся
@@ -66,7 +69,7 @@ class SimpleCarWorld(World):
         heading = rect(-0.3, 1)
 
         if type(agents) is int:
-            self.agents = [agent_class() for _ in range(agents)]
+            self.agents = [agent_class(hidden_layers=hidden_layers) for _ in range(agents)]
         elif type(agents) is list:
             self.agents = agents
         else:
@@ -94,7 +97,7 @@ class SimpleCarWorld(World):
             )
             self.circles[a] += angle(self.agent_states[a].position, next_agent_state.position) / (2*pi)
             self.agent_states[a] = next_agent_state
-            a.receive_feedback(self.reward(next_agent_state, collision))
+            a.receive_feedback(self.reward(next_agent_state, collision), train_every=self._train_every, epochs=self._epochs, eta=self._eta)
 
     def reward(self, state, collision):
         """
@@ -104,7 +107,7 @@ class SimpleCarWorld(World):
         :param collision: произошло ли столкновение со стеной на прошлом шаге
         :return reward: награду агента (возможно, отрицательную)
         """
-        a = np.sin(angle(-state.position, state.heading))
+        a = np.sin(angle(state.position, state.heading))
         heading_reward = 1 if a > 0.1 else a if a > 0 else 0
         heading_penalty = a if a <= 0 else 0
         idle_penalty = 0 if abs(state.velocity) > self.MIN_SPEED else -self.IDLENESS_PENALTY
@@ -119,7 +122,7 @@ class SimpleCarWorld(World):
         Награда "по умолчанию", используется в режиме evaluate
         Удобно, чтобы не приходилось отменять свои изменения в функции reward для оценки результата
         """
-        a = -np.sin(angle(-state.position, state.heading))
+        a = np.sin(angle(state.position, state.heading))
         heading_reward = 1 if a > 0.1 else a if a > 0 else 0
         heading_penalty = a if a <= 0 else 0
         idle_penalty = 0 if abs(state.velocity) > self.MIN_SPEED else -self.IDLENESS_PENALTY
@@ -129,24 +132,27 @@ class SimpleCarWorld(World):
         return heading_reward * self.HEADING_REWARD + heading_penalty * self.WRONG_HEADING_PENALTY + collision_penalty \
             + idle_penalty + speeding_penalty
 
-    def run(self, steps=None):
+    def run(self, steps=None, visual=True):
         """
         Основной цикл мира; по завершении сохраняет текущие веса агента в файл network_config_agent_n_layers_....txt
         :param steps: количество шагов цикла; до внешней остановки, если None
         """
-        scale = self._prepare_visualization()
+        if visual:
+            scale = self._prepare_visualization()
         for _ in range(steps) if steps is not None else itertools.count():
             self.transition()
-            self.visualize(scale)
-            if self._update_display() == pygame.QUIT:
-                break
-            sleep(0.1)
+            if visual:
+                self.visualize(scale)
+                if self._update_display() == pygame.QUIT:
+                    break
+                sleep(0.1)
 
         for i, agent in enumerate(self.agents):
             try:
                 filename = "network_config_agent_%d_layers_%s.txt" % (i, "_".join(map(str, agent.neural_net.sizes)))
                 agent.to_file(filename)
                 print("Saved agent parameters to '%s'" % filename)
+                return filename
             except AttributeError:
                 pass
 
@@ -179,7 +185,7 @@ class SimpleCarWorld(World):
                     break
                 sleep(0.05)
 
-        return np.mean(rewards)
+        return np.mean(rewards), self.circles[agent]
 
     def vision_for(self, agent):
         """
@@ -311,6 +317,7 @@ if __name__ == "__main__":
     random.seed(3)
     m = generate_map(8, 5, 3, 3)
     SimpleCarWorld(1, m, SimplePhysics, SimpleCarAgent, timedelta=0.2).run()
+    random.seed(ts)
 
     # если вы хотите продолжить обучение уже существующей модели, вместо того,
     # чтобы создавать новый мир с новыми агентами, используйте код ниже:
